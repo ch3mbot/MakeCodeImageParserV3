@@ -1,0 +1,14 @@
+C:\Users\dagan\Documents\MakeCodeImageParserV3\bin\Debug\net7.0-windows\MakeCodeImageParserV3.exe
+C:\Users\dagan\Documents\MakeCodeImageParserV3\bin\Debug\net7.0-windows\MakeCodeImageParserV3.deps.json
+C:\Users\dagan\Documents\MakeCodeImageParserV3\bin\Debug\net7.0-windows\MakeCodeImageParserV3.runtimeconfig.json
+C:\Users\dagan\Documents\MakeCodeImageParserV3\bin\Debug\net7.0-windows\MakeCodeImageParserV3.dll
+C:\Users\dagan\Documents\MakeCodeImageParserV3\bin\Debug\net7.0-windows\MakeCodeImageParserV3.pdb
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.AssemblyInfoInputs.cache
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.AssemblyInfo.cs
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.csproj.CoreCompileInputs.cache
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.dll
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\refint\MakeCodeImageParserV3.dll
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.pdb
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\MakeCodeImageParserV3.genruntimeconfig.cache
+C:\Users\dagan\Documents\MakeCodeImageParserV3\obj\Debug\net7.0-windows\ref\MakeCodeImageParserV3.dll
