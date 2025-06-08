@@ -36,9 +36,9 @@ namespace MakeCodeImageParserV3
         /// <param name="colorBits"></param>
         /// <param name="func"></param>
         /// <returns></returns>
-        public static long TotalBits(byte[][,] frames, Func<byte[,], Bitstream> func) { return frames.Sum(frame => func(frame).Count); }
-        public static long TotalBits(byte[][,] frames, Func<byte[][,], Bitstream> func) { return func(frames).Count; }
-        public static long TotalBits(byte[][,] frames, Func<byte[][,], Bitstream[]> func) { return func(frames).Sum(bs => bs.Count); }
+        public static long TotalBits(byte[][,] frames, Func<byte[,], Bitstream> func) { return frames.Sum(frame => func(frame).TotalBits); }
+        public static long TotalBits(byte[][,] frames, Func<byte[][,], Bitstream> func) { return func(frames).TotalBits; }
+        public static long TotalBits(byte[][,] frames, Func<byte[][,], Bitstream[]> func) { return func(frames).Sum(bs => bs.TotalBits); }
 
         public static void EstimateSavings(byte[][,] frames, int colorBits, Func<byte[,], Bitstream> func, string name)
         {
@@ -176,7 +176,7 @@ namespace MakeCodeImageParserV3
             for (int i = 0; i < rows.Length; i++)
             {
                 Console.Write(rows[i].GetData(4, 4));
-                outputStream.Extend(rows[i]);
+                outputStream.Append(rows[i]);
             }
             Console.WriteLine();
 
@@ -198,7 +198,7 @@ namespace MakeCodeImageParserV3
             for (int i = 0; i < cols.Length; i++)
             {
                 Console.Write(cols[i].GetData(4, 4));
-                outputStream.Extend(cols[i]);
+                outputStream.Append(cols[i]);
             }
             Console.WriteLine();
 
@@ -545,7 +545,7 @@ namespace MakeCodeImageParserV3
         // #FIXME maybe works now?
         public static byte[,] ChunkArrToByteBoxHorizontal(ChunkedBitstream[] frame, int colorBits, int packCount)
         {
-            int width = frame[0].Count;
+            int width = frame[0].ChunkCount;
             int height = frame.Length;
 
             byte[,] packed = new byte[width, height];
@@ -583,7 +583,7 @@ namespace MakeCodeImageParserV3
 
 
             int width = frame.Length;
-            int height = frame[0].Count;
+            int height = frame[0].ChunkCount;
 
             byte[,] packed = new byte[width, height];
             for (int x = 0; x < width; x++)
@@ -641,9 +641,9 @@ namespace MakeCodeImageParserV3
         /// <exception cref="ArgumentException"></exception>
         public static byte[] UnpackLinear(ChunkedBitstream frame, int colorBits, int packCount)
         {
-            if (packCount != frame.Bits / colorBits) throw new ArgumentException("Packing incorrect.");
+            if (packCount != frame.BitsPerChunk / colorBits) throw new ArgumentException("Packing incorrect.");
 
-            int totalPixels = frame.Count * packCount;
+            int totalPixels = frame.ChunkCount * packCount;
             int bitsPerChunk = colorBits * packCount;
 
             if ((bitsPerChunk < 1) || (bitsPerChunk > 32)) throw new ArgumentException("Bits per chunk must be between 1 and 32.");
@@ -709,17 +709,16 @@ namespace MakeCodeImageParserV3
             int chunkBits = dataBits + numberBits;
             Bitstream outty = new Bitstream();
 
-            if ((bs.Count % dataBits) != 0)
+            if ((bs.TotalBits % dataBits) != 0)
             {
                 // padding ig
-                int needed = (int)(dataBits - (bs.Count % dataBits));
+                int needed = (int)(dataBits - (bs.TotalBits % dataBits));
                 outty.Add(0, needed);
             }
 
             int countLimit = 1 << numberBits;
-
             int count = 1;
-            for(int i = 1; i < bs.Count / dataBits; i++)
+            for(int i = 1; i < bs.TotalBits / dataBits; i++)
             {
                 uint data = bs.GetData(i * dataBits, dataBits);
                 uint lastData = bs.GetData((i - 1) * dataBits, dataBits);
@@ -744,7 +743,7 @@ namespace MakeCodeImageParserV3
             }
 
             // add the last one
-            outty.Add(bs.GetLongData(bs.Count - dataBits, dataBits), dataBits);
+            outty.Add(bs.GetData(bs.TotalBits - dataBits, dataBits), dataBits);
             outty.Add(count - 1, numberBits);
 
             return new ChunkedBitstream(outty, chunkBits);
@@ -756,10 +755,10 @@ namespace MakeCodeImageParserV3
         {
             Bitstream outBS = new Bitstream();
 
-            for(long i = 0; i < inBS.Count; i += numberBits + dataBits)
+            for(long i = 0; i < inBS.TotalBits; i += numberBits + dataBits)
             {
-                uint val = inBS.GetLongData(i, dataBits);
-                uint cnt = inBS.GetLongData(i + dataBits, numberBits);
+                uint val = inBS.GetData(i, dataBits);
+                uint cnt = inBS.GetData(i + dataBits, numberBits);
                 for(int j = 0; j < cnt + 1; j++)
                 {
                     outBS.Add(val, dataBits);

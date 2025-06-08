@@ -95,9 +95,9 @@ namespace MakeCodeImageParserV3
             Bitstream bsA = new Bitstream();
             Bitstream bsB = new Bitstream();
             bsA.Add(0xFF, 4);
-            bsB.Extend(bsA);
-            Console.WriteLine("bsA: " + bsA.GetData(0, (int)bsA.Count));
-            Console.WriteLine("bsB: " + bsB.GetData(0, (int)bsA.Count));
+            bsB.Append(bsA);
+            Console.WriteLine("bsA: " + bsA.GetData(0, (int)bsA.TotalBits));
+            Console.WriteLine("bsB: " + bsB.GetData(0, (int)bsA.TotalBits));
         }
 
         public static void FindOptimalPermutations(byte[][,] frames, (int minInclusive, int maxExclusive)[] argRanges)
@@ -219,8 +219,8 @@ namespace MakeCodeImageParserV3
             int bitCount = 32;
 
             bs.SetSize(index + bitCount);
-            bs.SetLongData(index, bitCount, input);
-            uint output = bs.GetLongData(index, bitCount);
+            bs.SetData(index, bitCount, input);
+            uint output = bs.GetData(index, bitCount);
 
             Console.WriteLine($"Wrote: 0x{input:X8}, Read: 0x{output:X8}");
             Console.WriteLine(output == input ? "Passed" : "Failed");
@@ -248,7 +248,7 @@ namespace MakeCodeImageParserV3
                             int bitCount = rng.Next(1, maxBitCount + 1);
                             uint value = rng.NextUInt();
 
-                            long start = bs.Count;
+                            long start = bs.TotalBits;
                             bs.Add(value, bitCount);
 
                             //Console.WriteLine("adding " + bitCount + " bits. BitCount is now " + bs.Count + " vs " + (referenceBits.Count + bitCount));
@@ -264,16 +264,16 @@ namespace MakeCodeImageParserV3
                     case 1: // Get
                         {
                             if (referenceBits.Count == 0) break;
-                            if (bs.Count == 0) break;
+                            if (bs.TotalBits == 0) break;
 
                             int bitCount = rng.Next(1, maxBitCount + 1);
-                            bitCount = (int)Math.Min(bitCount, bs.Count);
-                            long index = rng.NextInt64(0, bs.Count - bitCount + 1);
+                            bitCount = (int)Math.Min(bitCount, bs.TotalBits);
+                            long index = rng.NextInt64(0, bs.TotalBits - bitCount + 1);
 
                             try
                             {
                                 // Read value from Bitstream
-                                uint bitstreamValue = bs.GetLongData(index, bitCount);
+                                uint bitstreamValue = bs.GetData(index, bitCount);
 
                                 for (int j = 0; j < bitCount; j++)
                                 {
@@ -306,9 +306,9 @@ namespace MakeCodeImageParserV3
 
                     case 2: // Remove
                         {
-                            if (bs.Count < 1) break;
+                            if (bs.TotalBits < 1) break;
 
-                            int bitCount = rng.Next(1, (int)Math.Min(32, bs.Count) + 1);
+                            int bitCount = rng.Next(1, (int)Math.Min(32, bs.TotalBits) + 1);
                             try
                             {
                                 bs.Remove(bitCount);
@@ -323,17 +323,17 @@ namespace MakeCodeImageParserV3
 
                     case 3: // Set
                         {
-                            if (bs.Count < 1) break;
+                            if (bs.TotalBits < 1) break;
 
                             int bitCount = rng.Next(1, maxBitCount + 1);
-                            if (bs.Count < bitCount) break;
+                            if (bs.TotalBits < bitCount) break;
 
-                            long index = rng.NextInt64(0, bs.Count - bitCount + 1);
+                            long index = rng.NextInt64(0, bs.TotalBits - bitCount + 1);
                             uint value = rng.NextUInt();
 
                             try
                             {
-                                bs.SetLongData(index, bitCount, value);
+                                bs.SetData(index, bitCount, value);
 
                                 for (int j = 0; j < bitCount; j++)
                                 {
@@ -365,7 +365,7 @@ namespace MakeCodeImageParserV3
 
         public static bool VerifyEntireStream(Bitstream bs, List<bool> referenceBits)
         {
-            long bitCount = bs.Count;
+            long bitCount = bs.TotalBits;
 
             if (bitCount != referenceBits.Count)
             {
@@ -377,7 +377,7 @@ namespace MakeCodeImageParserV3
             {
                 try
                 {
-                    uint bit = bs.GetLongData(i, 1);
+                    uint bit = bs.GetData(i, 1);
                     bool bitstreamBit = (bit != 0);
                     bool referenceBit = referenceBits[(int)i];
 

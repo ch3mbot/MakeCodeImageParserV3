@@ -34,20 +34,21 @@ namespace MakeCodeImageParserV3
             }
         }
 
-        public long Count => totalBits;
+        public long TotalBits => totalBits;
         public long BitCapacity => ((long)data.Length * 32);
 
-        public uint GetData(int index, int bitCount) { return GetLongData((long)index, bitCount); }
-        public byte GetData(long index, int bitCount)
+
+        public byte GetShortData(int index, int bitCount) { return GetShortData((long)index, bitCount); }
+        public byte GetShortData(long index, int bitCount)
         {
             if (bitCount < 1 || bitCount > 8) throw new ArgumentOutOfRangeException();
 
-            return (byte)GetLongData(index, bitCount);
+            return (byte)GetData(index, bitCount);
         }
 
-        public uint GetLongData(int index, int bitCount) { return GetLongData((long)index, bitCount); }
+        public uint GetData(int index, int bitCount) { return GetData((long)index, bitCount); }
 
-        public uint GetLongData(long index, int bitCount)
+        public uint GetData(long index, int bitCount)
         {
             if (bitCount < 1 || bitCount > 32 || index < 0 || index + bitCount > totalBits)
                 throw new ArgumentOutOfRangeException();
@@ -73,16 +74,16 @@ namespace MakeCodeImageParserV3
             }
         }
 
-        public void SetData(int index, int bitCount, byte element) { SetLongData((long)index, bitCount, element); }
-        public void SetData(long index, int bitCount, byte element)
+        public void SetShortData(int index, int bitCount, byte element) { SetData((long)index, bitCount, element); }
+        public void SetShortData(long index, int bitCount, byte element)
         {
             if (bitCount < 1 || bitCount > 8) throw new ArgumentOutOfRangeException();
 
-            SetLongData(index, bitCount, element); 
+            SetData(index, bitCount, element); 
         }
 
-        public void SetLongData(int index, int bitCount, uint element) { SetLongData((long)index, bitCount, element); }
-        public void SetLongData(long index, int bitCount, uint element)
+        public void SetData(int index, int bitCount, uint element) { SetData((long)index, bitCount, element); }
+        public void SetData(long index, int bitCount, uint element)
         {
             if (bitCount < 1 || bitCount > 32 || index < 0 || index + bitCount > BitCapacity)
                 throw new ArgumentOutOfRangeException($"bitCount ({bitCount}) should be [1, 32] and index ({index}) plus bitCount ({bitCount}) should be [0, {BitCapacity}]");
@@ -130,7 +131,7 @@ namespace MakeCodeImageParserV3
                 Grow();
             }
 
-            SetLongData(totalBits, bitCount, data);
+            SetData(totalBits, bitCount, data);
             totalBits += bitCount;
         }
 
@@ -147,16 +148,16 @@ namespace MakeCodeImageParserV3
             }
         }
 
-        public void Extend(Bitstream other)
+        public void Append(Bitstream other)
         {
             long remainder = other.totalBits % 32;
             for(long i = 0; i < other.totalBits / 32; i++)
             {
-                Add(other.GetLongData(i * 32, 32), 32);
+                Add(other.GetData(i * 32, 32), 32);
             }
             if(remainder > 0)
             {
-                Add(other.GetLongData(32 * (other.totalBits / 32), (int)remainder), (int)remainder);
+                Add(other.GetData(32 * (other.totalBits / 32), (int)remainder), (int)remainder);
             }
         }
 
@@ -166,11 +167,11 @@ namespace MakeCodeImageParserV3
             long remainder = transferBits % 32;
             for (long i = 0; i < transferBits / 32; i++)
             {
-                segment.Add(GetLongData(i * 32 + index, 32), 32);
+                segment.Add(GetData(i * 32 + index, 32), 32);
             }
             if (remainder > 0)
             {
-                segment.Add(GetLongData(index + 32 * (transferBits / 32), (int)remainder), (int)remainder);
+                segment.Add(GetData(index + 32 * (transferBits / 32), (int)remainder), (int)remainder);
             }
             return segment;
         }
@@ -245,5 +246,27 @@ namespace MakeCodeImageParserV3
 
             return bytes.ToArray();
         }
+
+        // one byte per bit.
+        public byte[] ToLargeByteArray()
+        {
+            byte[] bytes = new byte[totalBits];
+            for(long i = 0; i < totalBits; i++)
+            {
+                bytes[i] = GetShortData(i, 1);
+            }
+            return bytes;
+        }
+
+        public override string ToString()
+        {
+            string output = "";
+            for(long i = 0; i < totalBits; i++)
+                if (GetShortData(i, 1) > 0) output += '1';
+                else output += "0";
+            return output;
+        }
+        
+        //#FIXME add GetBit (true/false)
     }
 }
