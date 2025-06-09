@@ -134,7 +134,7 @@ namespace MakeCodeImageParserV3
         // one (or more) bytes per chunk, keeping spaced.
         public byte[] ToChunkedByteArray(int bytesPerChunk)
         {
-            if (bitsPerChunk > bytesPerChunk * 8) throw new ArgumentException("bits per chunk must not exceed space for bytes.");
+            if (bitsPerChunk > bytesPerChunk * 8) throw new ArgumentException($"bits per chunk ({bitsPerChunk}) must not exceed space for bytes.");
             if (bytesPerChunk < 1 || bytesPerChunk > 4) throw new ArgumentException("bytes per chunk must be between 1 and 4 inclusive.");
 
             byte[] output = new byte[bytesPerChunk * ChunkCount];
@@ -207,6 +207,16 @@ namespace MakeCodeImageParserV3
             return chunks.GetEnumerator();
         }
 
+        public string ToString(string? separator, string? format)
+        {
+            string output = "";
 
+            for(int i = 0; i < chunks.Count; i++)
+            {
+                output += chunks[i].ToString(format) + separator;
+            }
+
+            return output;
+        }
     }
 }

@@ -135,6 +135,13 @@ namespace MakeCodeImageParserV3
             totalBits += bitCount;
         }
 
+        public void AddReversed(byte data, int bitCount) { AddReversed((uint)data, bitCount); }
+        public void AddReversed(int data, int bitCount) { AddReversed((uint)data, bitCount); }
+        public void AddReversed(uint data, int bitCount)
+        {
+            Add(ReverseBits(data, bitCount), bitCount);
+        }
+
         public void Remove(int bitCount) { Remove((long)bitCount); }
         public void Remove(long bitCount)
         {
@@ -266,7 +273,18 @@ namespace MakeCodeImageParserV3
                 else output += "0";
             return output;
         }
-        
+
+        private uint ReverseBits(uint value, int bitCount)
+        {
+            uint reversed = 0;
+            for (int i = 0; i < bitCount; i++)
+            {
+                reversed <<= 1;
+                reversed |= (value >> i) & 1;
+            }
+            return reversed;
+        }
+
         //#FIXME add GetBit (true/false)
     }
 }

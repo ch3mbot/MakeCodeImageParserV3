@@ -154,9 +154,9 @@ namespace MakeCodeImageParserV3
 
         public static void FindOptimalPermutations(byte[][,] frames, (int minInclusive, int maxExclusive)[] argRanges)
         {
-            int colorBits = 1;
+            int colorBits = 2;
 
-            int factor = 4; //#FIXME do not use this long term
+            int factor = 1; //#FIXME do not use this long term
 
             // pack count 1 (XX) to 16
             // numberBits 1 (XX) to 16
@@ -175,13 +175,14 @@ namespace MakeCodeImageParserV3
                 args[arg] = valsForArg.ToArray();
             }
 
-            Func<byte[][,], int[], ChunkedBitstream[]> allCompFuncs = (frames, args) =>
+            Func<byte[][,], int[], long> allCompFuncs = (frames, args) =>
             {
                 int packCount = args[0];
                 int numberBits = args[1];
                 bool doDelta = args[2] > 0 ? true : false;
                 bool packVertical = args[3] > 0 ? true : false;
                 bool flattenVertical = args[4] > 0 ? true : false;
+                bool doHuffman = args[5] > 0 ? true : false;
 
                 int dataBits = colorBits * packCount;
 
@@ -211,20 +212,36 @@ namespace MakeCodeImageParserV3
                 else
                     deltaEncodedFrames = flattenedFrames;
 
+                ChunkedBitstream[] postRLE;
+               
                 // if number bits > 1, then do RLE.
                 if (numberBits > 1)
                 {
-                    return Helper.ApplyToAllFrames(deltaEncodedFrames, frame => RLEPart(frame.ToBitstream(), packCount, numberBits));
+                    postRLE = Helper.ApplyToAllFrames(deltaEncodedFrames, frame => RLEPart(frame.ToBitstream(), packCount, numberBits));
+                }
+                else
+                {
+                    // Just return the frame otherwise
+                    postRLE = Helper.ApplyToAllFrames(deltaEncodedFrames, frame => frame);
+                }
+                
+                // if Huffman do Huffman
+                if(doHuffman)
+                {
+                    return EstimateSavings(postRLE);
+                } 
+                else
+                {
+                    return postRLE.Sum(s => s.TotalBits);
                 }
 
-                // Just return the frame otherwise
-                return Helper.ApplyToAllFrames(deltaEncodedFrames, frame => frame);
+
             };
 
             GetBestSavingPermutation(Helper.ApplyToAllFrames(frames, frame => DownsampleFrameSimple(frame, factor)), colorBits, args, allCompFuncs);
         }
 
-        public static void GetBestSavingPermutation(byte[][,] frames, int colorBits, int[][] args, Func<byte[][,], int[], ChunkedBitstream[]> func)
+        public static void GetBestSavingPermutation(byte[][,] frames, int colorBits, int[][] args, Func<byte[][,], int[], long> func)
         {
             List<List<int>> paramPermutations = new List<List<int>>() { new List<int>() };
 
@@ -255,7 +272,7 @@ namespace MakeCodeImageParserV3
             foreach (List<int> permut in paramPermutations)
             {
                 var startMs = DateTime.Now;
-                long totalBits = func(frames, permut.ToArray()).Sum(f => f.TotalBits);
+                long totalBits = func(frames, permut.ToArray());
                 if (totalBits < lowestBitcount)
                 {
                     lowestBitcount = totalBits;
@@ -280,6 +297,135 @@ namespace MakeCodeImageParserV3
                 Console.WriteLine($"kilobytes taken: {kb}. Data must be compressed to {kbGoal / kb * 100:00.00}% of compressed size to fit within {kbGoal} kb.");
                 Console.WriteLine("Best params for this: " + string.Join(",", bestParams.Select(n => n.ToString())));
             }
+        }
+
+        public static int EstimateSavings(ChunkedBitstream[] data)
+        {
+            uint mask = (uint)((1 << data[0].BitsPerChunk) - 1);
+            int totalChunks = data.Sum(c => c.ChunkCount);
+
+            // Count frequency of each symbol
+            Dictionary<uint, uint> freqDict = new();
+            foreach (ChunkedBitstream stream in data)
+            {
+                for(int i = 0; i < stream.ChunkCount; i++)
+                {
+                    uint chunk = stream.GetChunk(i);
+                    if (!freqDict.ContainsKey(chunk))
+                        freqDict[chunk] = 0U;
+                    freqDict[chunk]++;
+                }
+            }
+
+            // Compute entropy (in bits)
+            double entropy = 0.0;
+            foreach (var kvp in freqDict)
+            {
+                double p = (double)kvp.Value / totalChunks;
+                entropy += -p * Math.Log2(p);
+            }
+
+            // Compare sizes
+            double originalBits = data[0].BitsPerChunk * totalChunks;
+            double estimatedHuffmanBits = entropy * totalChunks;
+            double savings = originalBits - estimatedHuffmanBits;
+            double compressionRatio = estimatedHuffmanBits / originalBits;
+
+            // Console.WriteLine($"Original size:  {originalBits} bits");
+            // Console.WriteLine($"Estimated Huffman size: {estimatedHuffmanBits:F2} bits");
+            // Console.WriteLine($"Estimated savings: {savings:F2} bits ({(100 * (1 - compressionRatio)):F2}% reduction)");
+
+            return (int)estimatedHuffmanBits;
+        }
+
+        public static Bitstream DoPermutation(byte[][,] allFrameData, int frameIndex, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman, out ChunkedBitstream last)
+        {
+
+            byte[,] frameMain = Helper.DownsampleFrameSimple(allFrameData[frameIndex], 4);
+            byte[,] frameLast = Helper.DownsampleFrameSimple(allFrameData[frameIndex - 1], 4);
+
+            ChunkedBitstream2D fmainbs = new ChunkedBitstream2D(frameMain, 1);
+            ChunkedBitstream2D flastbs = new ChunkedBitstream2D(frameLast, 1);
+
+            // pack
+            ChunkedBitstream2D packedfmain;
+            ChunkedBitstream2D packedflast;
+            if (packCount > 1)
+            {
+                packedfmain = fmainbs.PackedSafe(packCount, packVertical);
+                packedflast = flastbs.PackedSafe(packCount, packVertical);
+            }
+            else
+            {
+                packedfmain = fmainbs;
+                packedflast = flastbs;
+            }
+
+            int w = packedfmain.LineCount;
+            int h = packedfmain.LineLength;
+
+            // flatten
+            ChunkedBitstream flatFrameMain = packedfmain.Flatten(flattenVertical);
+            ChunkedBitstream flatFrameLast = packedflast.Flatten(flattenVertical);
+            last = flatFrameLast;
+
+            // delta encode
+            ChunkedBitstream deltaFrameMain;
+            if (doDelta)
+            {
+                deltaFrameMain = DeltaEncodeStream(flatFrameMain, flatFrameLast);
+            }
+            else
+                deltaFrameMain = flatFrameMain;
+
+            ChunkedBitstream postRLEmainFrame;
+
+            // if number bits > 1, then do RLE.
+            if (numberBits > 1)
+            {
+                postRLEmainFrame = RLEPart(deltaFrameMain.ToBitstream(), packCount, numberBits);
+            }
+            else
+            {
+                // Just return the frame otherwise
+                postRLEmainFrame = deltaFrameMain;
+            }
+
+            // do Huffman maybe
+            Bitstream huffmanStream;
+            if(huffman)
+            {
+                huffmanStream = null; //#FIXME HSDFIGKL
+            }
+            else
+            {
+                huffmanStream = postRLEmainFrame.ToBitstream();
+            }
+
+            return huffmanStream;
+        }
+
+        public static ChunkedBitstream2D UndoPermutation(Bitstream bs, ChunkedBitstream flattendPrevFrame, int width, int height, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman)
+        {
+            ChunkedBitstream deHuff = null; //#FIXME
+
+            ChunkedBitstream deRLE = DeRLEPart(deHuff, packCount, numberBits);
+            ChunkedBitstream deDelt = DeltaEncodeStream(deRLE, flattendPrevFrame);
+
+            ChunkedBitstream2D deFlat = new ChunkedBitstream2D(deDelt, width, height, flattenVertical);
+            ChunkedBitstream2D dePack = deFlat.Unpacked(packCount, flattenVertical);
+
+            return dePack;
+        }
+
+        public static void DoAndUndoPermutation(byte[][,] allFrameData, int frameIndex, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman)
+        {
+            int width = allFrameData[0].GetLength(0);
+            int height = allFrameData[0].GetLength(1);
+
+            Bitstream processed = DoPermutation(allFrameData, frameIndex, packCount, numberBits, doDelta, packVertical, flattenVertical, huffman, out ChunkedBitstream flatLast);
+            ChunkedBitstream2D unprocessed = UndoPermutation(processed, flatLast, width, height, packCount, numberBits, doDelta, packVertical, flattenVertical, huffman);
+            FileManager.ShowGrayscaleImagePopup(unprocessed.ToSparseByteArray());
         }
     }
 }
