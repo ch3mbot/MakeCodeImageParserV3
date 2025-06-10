@@ -81,6 +81,7 @@ public static partial class Program
             new MenuItem { Description = "Test RLE Only",               Execute = TestRLEOnly },
             new MenuItem { Description = "Show Permutation",            Execute = ShowPermutation },
             new MenuItem { Description = "Huffman Encoding Test",       Execute = HuffmanTest },
+            new MenuItem { Description = "Actually Apply Encoding",     Execute = s => ActuallyEncode(s) },
         }; 
     }
     
@@ -150,6 +151,7 @@ public static partial class Program
     private static void FindOptimalPermutations(string[] args)
     {
         ClearAndShowHeading("Testing Optimal Packing");
+
         // pack count 1 (XX) to 16
         // numberBits 1 (XX) to 16
         // delta 0 or 1
@@ -160,81 +162,91 @@ public static partial class Program
         (int, int) delta = (0, 2);
         (int, int) packVert = (0, 2);
         (int, int) flattenVert = (0, 2);
-        (int, int) huffman = (0, 2);
+        (int, int) huffman = (1, 2);
 
         Console.WriteLine($"RLE packing bit range inclusive: from {packRange.Item1} to {packRange.Item2 - 1}");
         Console.WriteLine($"RLE number bit range inclusive: from {numberBits.Item1} to {numberBits.Item2 - 1}");
         Helper2.FindOptimalPermutations(allFrameData, new (int, int)[] { packRange, numberBits, delta, packVert, flattenVert, huffman });
+
         GoToMainMenu();
     }
 
+    //#FIXME data bits is just packCount, but in theory RLE could take more? is that not just packing again? Could try double packing
     private static void ShowPermutation(string[] args)
     {
         int packCount = int.Parse(args[0]);
         int numberBits = int.Parse(args[1]);
+        int dataBits = int.Parse(args[2]);
+        bool doDelta = int.Parse(args[3]) > 0;
+        bool packVertical = int.Parse(args[4]) > 0;
+        bool flattenVertical = int.Parse(args[5]) > 0;
+        bool huffman = int.Parse(args[6]) > 0;
+
+        ClearAndShowHeading($"Testing Permutation: packCount: {packCount}, dataBits: {dataBits}, numberBits: {numberBits}, delta: {doDelta}, packing: {(packVertical ? "vert" : "hori")}, flattening: {(flattenVertical ? "vert" : "hori")}, huffman: {huffman}");
+
+        Helper2.DoAndUndoPermutation(allFrameData, 36, packCount, numberBits, doDelta, packVertical, flattenVertical, huffman);
+
+        GoToMainMenu();
+    }
+
+    private static long ActuallyEncode(string[] args)
+    {
+        int packCount = int.Parse(args[0]);
+        int numberBits = int.Parse(args[1]);
+        // int dataBits = int.Parse(args[1]);
         bool doDelta = int.Parse(args[2]) > 0;
         bool packVertical = int.Parse(args[3]) > 0;
         bool flattenVertical = int.Parse(args[4]) > 0;
         bool huffman = int.Parse(args[5]) > 0;
 
-        byte[,] frame36 = Helper.DownsampleFrameSimple(allFrameData[36], 4);
-        byte[,] frame37 = Helper.DownsampleFrameSimple(allFrameData[37], 4);
+        int width = allFrameData[0].GetLength(0) / 4;
+        int height = allFrameData[0].GetLength(1) / 4;
 
-        ChunkedBitstream2D f36bs = new ChunkedBitstream2D(frame36, 1);
-        ChunkedBitstream2D f37bs = new ChunkedBitstream2D(frame37, 1);
+        ClearAndShowHeading($"Encoding using permutation: packCount: {packCount}, numberBits: {numberBits}, delta: {doDelta}, packing: {(packVertical ? "vert" : "hori")}, flattening: {(flattenVertical ? "vert" : "hori")}, huffman: {huffman}");
 
+        int frameCount = allFrameData.Length;
 
-
-        // pack
-        ChunkedBitstream2D packedFrame36;
-        ChunkedBitstream2D packedFrame37;
-        if (packCount > 1)
+        ChunkedBitstream[] preHuffFrames = new ChunkedBitstream[frameCount];
+        ChunkedBitstream[] lastFrames = new ChunkedBitstream[frameCount];
+        for (int i = 1; i < frameCount; i++)
         {
-            packedFrame36 = f36bs.PackedSafe(packCount, packVertical);
-            packedFrame37 = f37bs.PackedSafe(packCount, packVertical);
-        }
-        else
-        {
-            packedFrame36 = f36bs;
-            packedFrame37 = f37bs;
+            preHuffFrames[i] = Helper2.DoPermutation(allFrameData, i, packCount, numberBits, doDelta, packVertical, flattenVertical, out ChunkedBitstream last);
+            lastFrames[i] = last;
         }
 
-        int w = packedFrame36.LineCount;
-        int h = packedFrame36.LineLength;
+        // get freq
+        Dictionary<uint, int> freq = HuffmanEncoder.BuildFrequencyTable(preHuffFrames.Skip(1).ToArray());
 
-        // flatten
-        ChunkedBitstream flattenedFrame36 = packedFrame36.Flatten(flattenVertical);
-        ChunkedBitstream flattenedFrame37 = packedFrame37.Flatten(flattenVertical);
+        // gen table and codebook
+        HuffmanNode root = HuffmanEncoder.BuildHuffmanTree(freq);
+        Dictionary<uint, int> codeLengths = HuffmanEncoder.GetCodeLengths(root);
 
-        // delta encode
-        ChunkedBitstream deltaEncodedFrame36;
-        if (doDelta)
+        // write codebook
+        Bitstream codebook = HuffmanEncoder.WriteCodebook(codeLengths);
+
+        // remove 0th fake element.
+        Bitstream[] postHuffFrames = Helper2.DoHuffman(preHuffFrames.Skip(1).ToArray(), codebook);
+
+        int bitsPerChunk = preHuffFrames[1].BitsPerChunk;
+        long totalBitsTaken = postHuffFrames.Sum(s => s.TotalBits);
+
+        Console.WriteLine("Total bits taken: " + totalBitsTaken);
+        Console.WriteLine("Total kb taken: " + (Math.Ceiling((double)totalBitsTaken / 8) / 1024).ToString("F2"));
+
+        // add back 0th fake element
+        ChunkedBitstream[] deHuffFrames = Helper2.UndoHuffman(postHuffFrames, codebook, bitsPerChunk).Prepend(null).ToArray();
+        ChunkedBitstream2D[] unProcced = new ChunkedBitstream2D[frameCount];
+        for (int i = 1; i < frameCount; i++)
         {
-            deltaEncodedFrame36 = Helper2.DeltaEncodeStream(flattenedFrame36, flattenedFrame37);
-        }
-        else
-            deltaEncodedFrame36 = flattenedFrame36;
-
-        ChunkedBitstream postRLE36;
-
-        // if number bits > 1, then do RLE.
-        if (numberBits > 1)
-        {
-            postRLE36 = Helper2.RLEPart(deltaEncodedFrame36.ToBitstream(), packCount, numberBits);
-        }
-        else
-        {
-            // Just return the frame otherwise
-            postRLE36 = deltaEncodedFrame36;
+            unProcced[i] = Helper2.UndoPermutation(deHuffFrames[i], lastFrames[i], width, height, packCount, numberBits, doDelta, packVertical, flattenVertical);
         }
 
-        ChunkedBitstream deRLE = Helper2.DeRLEPart(postRLE36, packCount, numberBits);
-        ChunkedBitstream deDelt = Helper2.DeltaEncodeStream(deltaEncodedFrame36, flattenedFrame37);
-        Console.WriteLine("w: " + w + ", h: " + h + ", len: " + deDelt.ChunkCount);
-        ChunkedBitstream2D deFlat = new ChunkedBitstream2D(flattenedFrame36, w, h, flattenVertical);
-        ChunkedBitstream2D dePack = deFlat.Unpacked(packCount, flattenVertical);
-        byte[,] fixedFrame = dePack.ToSparseByteArray();
-        FileManager.ShowGrayscaleImagePopup(fixedFrame);
+        for(int i = 16; i <  frameCount; i++)
+        {
+            //FileManager.ShowGrayscaleImagePopup(unProcced[i].ToSparseByteArray());
+        }
+
+        return totalBitsTaken;
     }
 
     private static void PreviewImageFromParams(string[] args)
@@ -334,45 +346,52 @@ public static partial class Program
         Console.WriteLine("Chunked2D conversion test");
         FileManager.ShowGrayscaleImagePopup(original);
 
+        {
+            Console.WriteLine("packing flipped test");
+            ChunkedBitstream2D packedf = f36bs.Packed(8, true);
+            ChunkedBitstream2D unpackedf = packedf.Unpacked(8, true);
+            FileManager.ShowGrayscaleImagePopup(unpackedf.ToSparseByteArray());
+        }
 
-        Console.WriteLine("packing flipped test");
-        ChunkedBitstream2D packedf = f36bs.Packed(8, true);
-        ChunkedBitstream2D unpackedf = packedf.Unpacked(8, true);
-        FileManager.ShowGrayscaleImagePopup(unpackedf.ToSparseByteArray());
+        {
+            Console.WriteLine("packing unflipped pad trim test");
+            ChunkedBitstream2D packed = f36bs.PadLineLength(8).Packed(8, false);
+            ChunkedBitstream2D unpacked = packed.Unpacked(8, false).Trim(30);
+            FileManager.ShowGrayscaleImagePopup(unpacked.ToSparseByteArray());
+        }
 
+        {
+            Console.WriteLine("flatten test");
+            ChunkedBitstream flattened = f36bs.Flatten(true);
+            ChunkedBitstream2D unflattened = new ChunkedBitstream2D(flattened, 40, 30, false);
+            FileManager.ShowGrayscaleImagePopup(unflattened.ToSparseByteArray());
+        }
 
-        Console.WriteLine("packing unflipped pad trim test");
-        ChunkedBitstream2D packed = f36bs.PadLineLength(8).Packed(8, false);
-        ChunkedBitstream2D unpacked = packed.Unpacked(8, false).Trim(30);
-        FileManager.ShowGrayscaleImagePopup(unpacked.ToSparseByteArray());
+        {
+            Console.WriteLine("delta test");
+            ChunkedBitstream deltad = Helper2.DeltaEncodeStream(f36bs.Flatten(true), f37bs.Flatten(true));
+            ChunkedBitstream undeltad = Helper2.DeltaEncodeStream(deltad, f37bs.Flatten(true));
+            ChunkedBitstream2D undeltflat = new ChunkedBitstream2D(undeltad, 40, 30, true);
+            FileManager.ShowGrayscaleImagePopup(undeltflat.ToSparseByteArray());
+        }
 
+        {
+            Console.WriteLine("RLE test");
+            ChunkedBitstream postRLE = Helper2.RLEPart(Helper2.DeltaEncodeStream(f36bs.Flatten(true), f37bs.Flatten(true)).ToBitstream(), 1, 4);
+            ChunkedBitstream deRLE = Helper2.DeRLEPart(postRLE, 1, 4);
+            ChunkedBitstream2D fixedRLE = new ChunkedBitstream2D(Helper2.DeltaEncodeStream(deRLE, f37bs.Flatten(true)), 40, 30, true);
+            FileManager.ShowGrayscaleImagePopup(fixedRLE.ToSparseByteArray());
+        }
 
-        Console.WriteLine("flatten test");
-        ChunkedBitstream flattened = f36bs.Flatten(true);
-        ChunkedBitstream2D unflattened = new ChunkedBitstream2D(flattened, 40, 30, false);
-        FileManager.ShowGrayscaleImagePopup(unflattened.ToSparseByteArray());
-
-
-        Console.WriteLine("delta test");
-        ChunkedBitstream deltad = Helper2.DeltaEncodeStream(f36bs.Flatten(true), f37bs.Flatten(true));
-        ChunkedBitstream undeltad = Helper2.DeltaEncodeStream(deltad, f37bs.Flatten(true));
-        ChunkedBitstream2D undeltflat = new ChunkedBitstream2D(undeltad, 40, 30, true);
-        FileManager.ShowGrayscaleImagePopup(undeltflat.ToSparseByteArray());
-
-
-        Console.WriteLine("RLE test");
-        ChunkedBitstream postRLE = Helper2.RLEPart(Helper2.DeltaEncodeStream(f36bs.Flatten(true), f37bs.Flatten(true)).ToBitstream(), 1, 4);
-        ChunkedBitstream deRLE = Helper2.DeRLEPart(postRLE, 1, 4);
-        ChunkedBitstream2D fixedRLE = new ChunkedBitstream2D(Helper2.DeltaEncodeStream(deRLE, f37bs.Flatten(true)), 40, 30, true);
-        FileManager.ShowGrayscaleImagePopup(fixedRLE.ToSparseByteArray());
-
-        Console.WriteLine("combo test");
-        ChunkedBitstream in36packflat = f36bs.Packed(2, true).Flatten(true);
-        ChunkedBitstream in37packflat = f37bs.Packed(2, true).Flatten(true);
-        ChunkedBitstream postComboProc = Helper2.RLEPart(Helper2.DeltaEncodeStream(in36packflat, in37packflat).ToBitstream(), 2, 9);
-        ChunkedBitstream postComboDERLE = Helper2.DeRLEPart(postComboProc, 2, 9);
-        ChunkedBitstream2D almostThere = new ChunkedBitstream2D(Helper2.DeltaEncodeStream(postComboDERLE, in37packflat), 20, 30, true);
-        FileManager.ShowGrayscaleImagePopup(almostThere.Unpacked(2, true).ToSparseByteArray());
+        {
+            Console.WriteLine("combo test");
+            ChunkedBitstream in36packflat = f36bs.Packed(2, true).Flatten(true);
+            ChunkedBitstream in37packflat = f37bs.Packed(2, true).Flatten(true);
+            ChunkedBitstream postComboProc = Helper2.RLEPart(Helper2.DeltaEncodeStream(in36packflat, in37packflat).ToBitstream(), 2, 9);
+            ChunkedBitstream postComboDERLE = Helper2.DeRLEPart(postComboProc, 2, 9);
+            ChunkedBitstream2D almostThere = new ChunkedBitstream2D(Helper2.DeltaEncodeStream(postComboDERLE, in37packflat), 20, 30, true);
+            FileManager.ShowGrayscaleImagePopup(almostThere.Unpacked(2, true).ToSparseByteArray());
+        }
 
 
     }

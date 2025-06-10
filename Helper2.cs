@@ -154,9 +154,9 @@ namespace MakeCodeImageParserV3
 
         public static void FindOptimalPermutations(byte[][,] frames, (int minInclusive, int maxExclusive)[] argRanges)
         {
-            int colorBits = 2;
+            int colorBits = 1;
 
-            int factor = 1; //#FIXME do not use this long term
+            int factor = 4; //#FIXME do not use this long term
 
             // pack count 1 (XX) to 16
             // numberBits 1 (XX) to 16
@@ -338,7 +338,7 @@ namespace MakeCodeImageParserV3
             return (int)estimatedHuffmanBits;
         }
 
-        public static Bitstream DoPermutation(byte[][,] allFrameData, int frameIndex, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman, out ChunkedBitstream last)
+        public static ChunkedBitstream DoPermutation(byte[][,] allFrameData, int frameIndex, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, out ChunkedBitstream last)
         {
 
             byte[,] frameMain = Helper.DownsampleFrameSimple(allFrameData[frameIndex], 4);
@@ -363,11 +363,14 @@ namespace MakeCodeImageParserV3
 
             int w = packedfmain.LineCount;
             int h = packedfmain.LineLength;
+            //Console.WriteLine($"post packed size: ({w}x{h})");
 
             // flatten
             ChunkedBitstream flatFrameMain = packedfmain.Flatten(flattenVertical);
             ChunkedBitstream flatFrameLast = packedflast.Flatten(flattenVertical);
             last = flatFrameLast;
+
+            //Console.WriteLine($"flat frame length: " + flatFrameMain.ChunkCount);
 
             // delta encode
             ChunkedBitstream deltaFrameMain;
@@ -390,29 +393,73 @@ namespace MakeCodeImageParserV3
                 // Just return the frame otherwise
                 postRLEmainFrame = deltaFrameMain;
             }
+            //Console.WriteLine("post RLE length: " + postRLEmainFrame.ChunkCount + ", bits per chunk: " + postRLEmainFrame.BitsPerChunk);
 
-            // do Huffman maybe
-            Bitstream huffmanStream;
-            if(huffman)
-            {
-                huffmanStream = null; //#FIXME HSDFIGKL
-            }
-            else
-            {
-                huffmanStream = postRLEmainFrame.ToBitstream();
-            }
+            //Console.WriteLine("Pre Huffman Decoding: ");
+            //Console.WriteLine(postRLEmainFrame.ToString(",", "X"));
 
-            return huffmanStream;
+            //return huffmanStream;
+            return postRLEmainFrame;
         }
 
-        public static ChunkedBitstream2D UndoPermutation(Bitstream bs, ChunkedBitstream flattendPrevFrame, int width, int height, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman)
+        public static Bitstream GetCodebook(ChunkedBitstream[] streams)
         {
-            ChunkedBitstream deHuff = null; //#FIXME
+            Dictionary<uint, int> freq = HuffmanEncoder.BuildFrequencyTable(streams);
+            HuffmanNode root = HuffmanEncoder.BuildHuffmanTree(freq);
+            Dictionary<uint, int> codeLengths = HuffmanEncoder.GetCodeLengths(root);
+            Bitstream codebook = HuffmanEncoder.WriteCodebook(codeLengths);
+            return codebook;
+        }
 
-            ChunkedBitstream deRLE = DeRLEPart(deHuff, packCount, numberBits);
+        public static Bitstream[] DoHuffman(ChunkedBitstream[] streams, Bitstream codebookStream) => DoHuffman(streams, HuffmanEncoder.ReadCodebook(codebookStream));
+        public static Bitstream[] DoHuffman(ChunkedBitstream[] streams, Dictionary<uint, int> lengths) => DoHuffman(streams, HuffmanEncoder.AssignCanonicalCodes(lengths));
+        public static Bitstream[] DoHuffman(ChunkedBitstream[] streams, Dictionary<uint, (uint, int)> encodingTable)
+        {
+            Bitstream[] output = new Bitstream[streams.Length];
+
+            for(int i = 0; i < streams.Length; i++)
+            {
+                output[i] = HuffmanEncoder.EncodeSingleStream(streams[i], encodingTable);
+            }
+
+            return output;
+        }
+
+        public static ChunkedBitstream[] UndoHuffman(Bitstream[] streams, Bitstream codebookStream, int bitsPerChunk) => UndoHuffman(streams, HuffmanEncoder.ReadCodebook(codebookStream), bitsPerChunk);
+        public static ChunkedBitstream[] UndoHuffman(Bitstream[] streams, Dictionary<uint, int> lengths, int bitsPerChunk) => UndoHuffman(streams, HuffmanEncoder.AssignCanonicalCodes(lengths), bitsPerChunk);
+        public static ChunkedBitstream[] UndoHuffman(Bitstream[] streams, Dictionary<uint, (uint, int)> encodingTable, int bitsPerChunk)
+        {
+            ChunkedBitstream[] output = new ChunkedBitstream[streams.Length];
+
+            for (int i = 0; i < streams.Length; i++)
+            {
+                output[i] = HuffmanEncoder.Decode(streams[i], encodingTable, bitsPerChunk, out long finalOffset);
+            }
+
+            return output;
+        }
+
+        public static ChunkedBitstream2D UndoPermutation(ChunkedBitstream cbs, ChunkedBitstream flattendPrevFrame, int width, int height, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical)
+        {
+
+            ChunkedBitstream deRLE = DeRLEPart(cbs, packCount, numberBits);
             ChunkedBitstream deDelt = DeltaEncodeStream(deRLE, flattendPrevFrame);
 
-            ChunkedBitstream2D deFlat = new ChunkedBitstream2D(deDelt, width, height, flattenVertical);
+            //Console.WriteLine("Post Huffman Decoding: ");
+            //Console.WriteLine(cbs.ToString(",", "X"));
+
+
+            // post pack width and height
+            int ppw = width;
+            int pph = height;
+            if (packVertical)
+                ppw /= packCount;
+            else
+                pph /= packCount;
+
+            //Console.WriteLine("w: " + width + ", h: " + height + ", ppw: " + ppw + ", pph: " + pph);
+
+            ChunkedBitstream2D deFlat = new ChunkedBitstream2D(deDelt, ppw, pph, flattenVertical);
             ChunkedBitstream2D dePack = deFlat.Unpacked(packCount, flattenVertical);
 
             return dePack;
@@ -420,11 +467,20 @@ namespace MakeCodeImageParserV3
 
         public static void DoAndUndoPermutation(byte[][,] allFrameData, int frameIndex, int packCount, int numberBits, bool doDelta, bool packVertical, bool flattenVertical, bool huffman)
         {
-            int width = allFrameData[0].GetLength(0);
-            int height = allFrameData[0].GetLength(1);
+            // #FIXME remember all the divide by 4.
+            int width = allFrameData[0].GetLength(0) / 4;
+            int height = allFrameData[0].GetLength(1) / 4;
 
-            Bitstream processed = DoPermutation(allFrameData, frameIndex, packCount, numberBits, doDelta, packVertical, flattenVertical, huffman, out ChunkedBitstream flatLast);
-            ChunkedBitstream2D unprocessed = UndoPermutation(processed, flatLast, width, height, packCount, numberBits, doDelta, packVertical, flattenVertical, huffman);
+            Console.WriteLine($"Starting permutation with ({width}x{height}) image.");
+
+            ChunkedBitstream allButHuff = DoPermutation(allFrameData, frameIndex, packCount, numberBits, doDelta, packVertical, flattenVertical, out ChunkedBitstream flatLast);
+
+            Bitstream codebook = GetCodebook(new ChunkedBitstream[] { allButHuff });
+
+            Bitstream hoffed = !huffman ? allButHuff.ToBitstream() : DoHuffman(new ChunkedBitstream[] { allButHuff }, codebook)[0];
+            ChunkedBitstream unHoff = !huffman ? new ChunkedBitstream(hoffed, packCount + numberBits) : UndoHuffman(new Bitstream[] { hoffed }, codebook, allButHuff.BitsPerChunk)[0];
+
+            ChunkedBitstream2D unprocessed = UndoPermutation(unHoff, flatLast, width, height, packCount, numberBits, doDelta, packVertical, flattenVertical);
             FileManager.ShowGrayscaleImagePopup(unprocessed.ToSparseByteArray());
         }
     }

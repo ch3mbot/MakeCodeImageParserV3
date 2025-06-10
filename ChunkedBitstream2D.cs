@@ -78,7 +78,7 @@ namespace MakeCodeImageParserV3
         // #FIXME test
         public ChunkedBitstream2D(ChunkedBitstream flattened, int lineCount, int lineLength, bool endToEnd) : this(flattened.BitsPerChunk, lineCount, lineLength)
         {
-            if (flattened.ChunkCount != lineLength * lineCount) throw new ArgumentException("flat input stream must be divisible into lines. count: " + flattened.ChunkCount + " given: " + lineCount + "*" + lineLength);
+            if (flattened.ChunkCount != lineLength * lineCount) throw new ArgumentException("flat input stream must be divisible into lines. count: " + flattened.ChunkCount + " given: " + lineCount + "x" + lineLength);
 
             for (int i = 0; i < flattened.ChunkCount; i++)
             {

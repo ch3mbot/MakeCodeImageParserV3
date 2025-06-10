@@ -36,7 +36,7 @@ namespace MakeCodeImageParserV3
          
 
             // decode
-            ChunkedBitstream decodedCbs = HuffmanEncoder.Decode(encodedStream, decodingTable, chunkCount, bitsPerChunk);
+            ChunkedBitstream decodedCbs = HuffmanEncoder.Decode(encodedStream, decodingTable, bitsPerChunk, out long finalOffset);
 
             Console.WriteLine("encoded: ".PadRight(16) + inputCbs.ToString(",", "X2"));
             Console.WriteLine("decoded: ".PadRight(16) + decodedCbs.ToString(",", "X2"));

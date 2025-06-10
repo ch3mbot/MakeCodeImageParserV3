@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.ProgressBar;
 
 namespace MakeCodeImageParserV3
 {
@@ -32,6 +33,8 @@ namespace MakeCodeImageParserV3
                 mask = (uint)((1UL << bitsPerChunk) - 1);
             }
 
+            freq[uint.MaxValue] = 0;
+
             foreach (ChunkedBitstream stream in data)
             {
                 for(int i = 0; i < stream.ChunkCount; i++)
@@ -41,6 +44,9 @@ namespace MakeCodeImageParserV3
                         freq[masked] = 0;
                     freq[masked]++;
                 }
+
+                // Add one instance of null terminator
+                freq[uint.MaxValue]++;
             }
 
             return freq;
@@ -104,13 +110,17 @@ namespace MakeCodeImageParserV3
                 mask = (uint)((1UL << bitsPerChunk) - 1);
             }
 
-
-            for(int i = 0; i < data.ChunkCount; i++) 
+            output.Add((byte)data.ChunkCount, 8);
+            for (int i = 0; i < data.ChunkCount; i++) 
             {
                 uint masked = data[i] & mask;
                 (uint code, int length) = codes[masked];
                 output.AddReversed(code, length);
             }
+
+            // Add null terminator
+            (uint terminatorCode, int terminatorLength) = codes[uint.MaxValue];
+            output.Add(terminatorCode, terminatorLength);
 
             return output;
         }
@@ -128,12 +138,17 @@ namespace MakeCodeImageParserV3
 
             for(int s = 0; s < data.Length; s++)
             {
+                output.Append(EncodeSingleStream(data[s], codes));
+                // #FIXME remove if bad
+                /*
+                output.Add((byte)data[s].ChunkCount, 8);
                 for (int i = 0; i < data[s].ChunkCount; i++)
                 {
                     uint masked = data[s][i] & mask;
                     (uint code, int length) = codes[masked];
                     output.Add(code, length);
                 }
+                */
             }
 
             return output;
@@ -219,7 +234,8 @@ namespace MakeCodeImageParserV3
             return lengths;
         }
 
-        public static ChunkedBitstream Decode(Bitstream input, Dictionary<uint, (uint code, int length)> encoding, int valueCount, int bitsPerChunk)
+        //#FIXME add variable terminator symbol?
+        public static ChunkedBitstream Decode(Bitstream input, Dictionary<uint, (uint code, int length)> encoding, int bitsPerChunk, out long finalOffset, long offset = 0)
         {
             // Build reverse lookup table: (code, length) → symbol
             var reverse = encoding.ToDictionary(kvp => (kvp.Value.code, kvp.Value.length), kvp => kvp.Key);
@@ -227,28 +243,40 @@ namespace MakeCodeImageParserV3
 
             ChunkedBitstream result = new ChunkedBitstream(bitsPerChunk);
             int bitBuffer = 0, bitCount = 0;
-            long index = 0;
-            while (result.Count < valueCount)
+
+            // offset some number of bits.
+            long index = offset;
+
+            // read header for count in this run
+            byte valueCount = input.GetShortData(offset, 8);
+            index += 8;
+
+            while (true)
             {
                 bitBuffer = (bitBuffer << 1) | input.GetShortData(index, 1);
-                index++;
                 bitCount++;
+                index++;
 
                 if (bitCount > maxLen) continue;
 
                 uint maskedCode = (uint)(bitBuffer & ((1 << bitCount) - 1));
                 var key = (maskedCode, bitCount);
+
                 if (reverse.TryGetValue(key, out uint symbol))
                 {
+                    if (symbol == uint.MaxValue)
+                        break;
+
                     result.Add(symbol);
                     bitBuffer = 0;
                     bitCount = 0;
                 }
             }
 
+
+            finalOffset = index;
+
             return result;
         }
-
     }
-    //var key = ((uint)bitBuffer, bitCount);
 }

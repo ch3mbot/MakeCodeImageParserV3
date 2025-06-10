@@ -51,7 +51,7 @@ namespace MakeCodeImageParserV3
         public uint GetData(long index, int bitCount)
         {
             if (bitCount < 1 || bitCount > 32 || index < 0 || index + bitCount > totalBits)
-                throw new ArgumentOutOfRangeException();
+                throw new ArgumentOutOfRangeException("index: " + index + ", bitCount: " + bitCount + ", totalBits: " + totalBits);
 
             int chunk1 = (int)(index / 32);
             int offset1 = (int)(index % 32);
