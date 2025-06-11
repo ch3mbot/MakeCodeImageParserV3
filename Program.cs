@@ -2,6 +2,7 @@
 
 using MakeCodeImageParserV3;
 using System.Diagnostics;
+using System.Numerics;
 using System.Text.RegularExpressions;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.TrackBar;
@@ -224,6 +225,16 @@ public static partial class Program
         // write codebook
         Bitstream codebook = HuffmanEncoder.WriteCodebook(codeLengths);
 
+
+        int maxBits = 0;
+        foreach (uint number in codeLengths.Keys)
+        {
+            int bits = number == 0 ? 1 : (int)Math.Floor(Math.Log(number, 2)) + 1;
+            if (bits > maxBits)
+                maxBits = bits;
+        }
+        Console.WriteLine("codebook max used bits: " + maxBits);
+
         // remove 0th fake element.
         Bitstream[] postHuffFrames = Helper2.DoHuffman(preHuffFrames.Skip(1).ToArray(), codebook);
 
@@ -234,6 +245,7 @@ public static partial class Program
         Console.WriteLine("Total kb taken: " + (Math.Ceiling((double)totalBitsTaken / 8) / 1024).ToString("F2"));
 
         // add back 0th fake element
+        Console.WriteLine("bits per chunk: " + bitsPerChunk);
         ChunkedBitstream[] deHuffFrames = Helper2.UndoHuffman(postHuffFrames, codebook, bitsPerChunk).Prepend(null).ToArray();
         ChunkedBitstream2D[] unProcced = new ChunkedBitstream2D[frameCount];
         for (int i = 1; i < frameCount; i++)
@@ -243,7 +255,7 @@ public static partial class Program
 
         for(int i = 16; i <  frameCount; i++)
         {
-            //FileManager.ShowGrayscaleImagePopup(unProcced[i].ToSparseByteArray());
+            FileManager.ShowGrayscaleImagePopup(unProcced[i].ToSparseByteArray());
         }
 
         return totalBitsTaken;

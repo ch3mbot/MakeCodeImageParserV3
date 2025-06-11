@@ -25,15 +25,15 @@ namespace MakeCodeImageParserV3
 
             var freq = new Dictionary<uint, int>();
 
-            if (bitsPerChunk < 1 || bitsPerChunk > 32) throw new ArgumentException("bitsPerChunk must be between 1 and 32.");
+            if (bitsPerChunk < 1 || bitsPerChunk > 31) throw new ArgumentException("bitsPerChunk must be between 1 and 32.");
 
-            uint mask = uint.MaxValue;
-            if(bitsPerChunk < 32)
+            uint mask = uint.MaxValue >> 1;
+            if(bitsPerChunk < 31)
             {
                 mask = (uint)((1UL << bitsPerChunk) - 1);
             }
 
-            freq[uint.MaxValue] = 0;
+            freq[uint.MaxValue >> 1] = 0;
 
             foreach (ChunkedBitstream stream in data)
             {
@@ -46,7 +46,7 @@ namespace MakeCodeImageParserV3
                 }
 
                 // Add one instance of null terminator
-                freq[uint.MaxValue]++;
+                freq[uint.MaxValue >> 1]++;
             }
 
             return freq;
@@ -104,8 +104,8 @@ namespace MakeCodeImageParserV3
 
             Bitstream output = new Bitstream();
 
-            uint mask = uint.MaxValue;
-            if (bitsPerChunk < 32)
+            uint mask = uint.MaxValue >> 1;
+            if (bitsPerChunk < 31)
             {
                 mask = (uint)((1UL << bitsPerChunk) - 1);
             }
@@ -119,7 +119,7 @@ namespace MakeCodeImageParserV3
             }
 
             // Add null terminator
-            (uint terminatorCode, int terminatorLength) = codes[uint.MaxValue];
+            (uint terminatorCode, int terminatorLength) = codes[uint.MaxValue >> 1];
             output.Add(terminatorCode, terminatorLength);
 
             return output;
@@ -130,8 +130,8 @@ namespace MakeCodeImageParserV3
             int bitsPerChunk = data[0].BitsPerChunk;
 
             Bitstream output = new Bitstream();
-            uint mask = uint.MaxValue;
-            if (bitsPerChunk < 32)
+            uint mask = uint.MaxValue >> 1;
+            if (bitsPerChunk < 31)
             {
                 mask = (uint)((1UL << bitsPerChunk) - 1);
             }
@@ -264,7 +264,7 @@ namespace MakeCodeImageParserV3
 
                 if (reverse.TryGetValue(key, out uint symbol))
                 {
-                    if (symbol == uint.MaxValue)
+                    if (symbol == (uint.MaxValue >> 1))
                         break;
 
                     result.Add(symbol);
